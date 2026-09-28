@@ -69,11 +69,13 @@ python scripts/gh_repo.py verify <仓库目录>
 - **不要用本地 `git status` 判断是否推送成功。** 某些环境下 remote-tracking 引用会回滚，出现「本地显示已同步、实际没推上去」或「显示 ahead N、其实早已一致」的假象。**一致性只认服务端实况**：`GET /git/ref/heads/<branch>` 比对 HEAD，`GET /git/trees/<branch>?recursive=1` 逐路径比对 blob SHA。
 - **`git-receive-pack` 返回 405 是正常且健康的信号**，不是错误。
 - **网络中断通常只在分钟量级**，不必因为一次 `CONNECT tunnel failed` 就改方案；「稍后重试」与「改走 API」两条路都成立。
+- **`git push` 返回 SIGTERM 且无输出时，不要当成「输出丢失」就假定成功**。实测通道探测显示 `github.com` → 200（可用），但 `git push` 以 SIGTERM 结束、stdout 与 stderr 全空、exit 1，而远端 HEAD **确实没有变化**。判定只认服务端 HEAD，确认没推上去后改走 `gh_repo.py push <目录> --channel api`（零分叉、输出完整、逐 blob 校验）。
+- **子命令输出一律落盘再读**：`check` 实测耗时可达 2 分钟以上（凭据管理器交互较慢），长时间前台等待会触发 SIGTERM 把 stdout 一并带走，读到的就是空白。
 - **提交信息一律用文件传入**（`git commit -F <文件>`）：内联在命令行里的长文本可能触发安全过滤器**整条拦截**，报错理由还会指向一个与语义完全无关的方向。
 - **造测试提交时必须回读 `git rev-parse HEAD` 确认 SHA 真的变了**——测试文件名若被仓库自己的 `.gitignore` 命中，`git add` 会静默无效，随后 `git commit` 报 `nothing to commit`，而所有命令都"成功"，测试其实是空的。
 - **凭据调用需传完整环境变量**：用 `git credential fill` 取令牌时若裁剪了 `os.environ`，凭据管理器会找不到凭据库并报 `could not read Username`。令牌只在内存与管道中使用，不落盘、不打印。
 - **建仓用 `POST /user/repos` 且带 `auto_init: false`**，便于随后直接推送本地已有历史。
-- **topics 需单独设置**：`PUT /repos/{owner}/{repo}/topics`，名称只能是小写字母、数字、连字符。
+- **topics 需单独设置**：`PUT /repos/{owner}/{repo}/topics`，名称只能是小写字母、数字、连字符；仓库**描述**同理，用 `PATCH /repos/{owner}/{repo}` 带 `{"description": "..."}`（≤350 字符）。每次内容迭代后顺手同步，否则描述会落后于仓库实际内容。
 
 ## 使用方式
 
