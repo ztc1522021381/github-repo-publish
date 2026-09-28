@@ -110,6 +110,8 @@ git push -u origin main
   ```
   确认未推上去后，改走 **`gh_repo.py push <repo_dir> --channel api`**（Git Data API，零分叉、输出完整、逐 blob 校验），实测 28 秒完成。
 - **子命令输出一律落盘再读**：`check` 实测耗时可达 2 分钟以上（GCM 凭据交互慢），长时间前台等待会触发 SIGTERM 把 stdout 一并带走，读到的就是空白。统一写成 `python gh_repo.py <cmd> ... > <临时文件> 2>&1` 再读文件，`verify` / `push` 同理。
+- **本机没有 `gh` CLI，不要浪费一轮去找它**：`which gh` 无结果，`C:\Program Files\GitHub CLI\gh.exe`、`%LOCALAPPDATA%\GitHubCLI\gh.exe`、`~/.config/gh/` 均不存在。**所有 GitHub 操作一律走 `gh_repo.py`**——它从 Git 凭据管理器（GCM）取令牌，不依赖 gh。需要临时调 API（例如查远端 HEAD、改描述 / topics）时，`import gh_repo` 后直接用它的 `get_token()` + `api(method, path, payload, token=)` 即可，不必另造轮子。
+- **推送成功后 `git status -sb` 可能误报 `ahead N`，修正点在松散引用文件而非 `packed-refs`**：Git Data API 更新分支引用后，本地 `refs/remotes/origin/<branch>` 不会同步。2026-09-28 实测该仓库 `.git/packed-refs` **是空的**，引用真实存放于 `.git/refs/remotes/origin/main`（41 字节 = 40 位 SHA + 换行）。**判定**：`git rev-parse origin/main` 与 `GET /repos/{owner}/{repo}/git/ref/heads/{branch}` 的服务端值不一致即为误报。**修正**：直接用正确的服务端 SHA 覆盖该文件，`git status -sb` 随即变为干净的 `## main...origin/main`。先查服务端再动手，不要靠 `git fetch` 重试（该环境下对 remote-tracking ref 的写入会回滚）。
 - **`curl -o <路径>` 在本机沙箱会被静默拦下**：命令成功但文件不存在。需要把响应落盘时改用 Python `urllib`。只用 `-o /dev/null` 测状态码时不暴露此问题。
 - **`raw.githubusercontent.com` 经代理常读取超时**，复核线上内容优先走 `api.github.com` 的 contents / trees 端点。
 - **长脚本 stdout 可能整体丢失**（进程被 SIGTERM），脚本应把结果写入文件再读回，不要只依赖 stdout。
