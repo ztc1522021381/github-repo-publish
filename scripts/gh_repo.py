@@ -304,9 +304,12 @@ def cmd_push(args):
         remote_head = api("GET", "/repos/%s/%s/git/ref/heads/%s" % (owner, repo, args.branch),
                           token=token)["object"]["sha"]
     except ApiError as e:
-        if e.code != 404:
+        # 分支不存在时 GitHub 返回 404；但**空仓库**（尚无任何提交）返回的是
+        # 409 "Git Repository is empty."——两者语义相同，都按"待创建"处理。
+        # 少了 409 这一支，首次推送到新建仓库会直接失败。
+        if e.code not in (404, 409):
             raise
-        print("远端分支 %s 尚不存在，将创建。" % args.branch)
+        print("远端分支 %s 尚不存在（HTTP %d），将创建。" % (args.branch, e.code))
     print("远端 HEAD : %s" % (remote_head or "(无)"))
 
     if remote_head == head:
@@ -431,8 +434,14 @@ def cmd_verify(args):
         owner, repo = parse_github_url(git(repo_dir, "remote", "get-url", "origin"))
 
     local_head = git(repo_dir, "rev-parse", "HEAD")
-    remote_head = api("GET", "/repos/%s/%s/git/ref/heads/%s" % (owner, repo, args.branch),
-                      token=token)["object"]["sha"]
+    try:
+        remote_head = api("GET", "/repos/%s/%s/git/ref/heads/%s" % (owner, repo, args.branch),
+                          token=token)["object"]["sha"]
+    except ApiError as e:
+        if e.code not in (404, 409):
+            raise
+        raise SystemExit("远端分支 %s 不存在（HTTP %d），无可比对内容——"
+                         "仓库可能为空、尚未推送，或分支名不符。" % (args.branch, e.code))
     print("=== 提交比对 ===")
     print("本地 HEAD : %s" % local_head)
     print("远端 HEAD : %s" % remote_head)
