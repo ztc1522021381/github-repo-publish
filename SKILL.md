@@ -108,6 +108,7 @@ git push -u origin main
 - **`raw.githubusercontent.com` 经代理常读取超时**，复核线上内容优先走 `api.github.com` 的 contents / trees 端点。
 - **长脚本 stdout 可能整体丢失**（进程被 SIGTERM），脚本应把结果写入文件再读回，不要只依赖 stdout。
 - **建仓用 `POST /user/repos`**，带 `auto_init: false`，便于随后直接推送本地已有历史；同名仓库已存在时返回 `422`，属正常，跳过建仓继续推送即可。
+- **空仓库查 `refs/heads/<branch>` 返回的是 `409` 而不是 `404`**：对**尚无任何提交**的新建仓库，GitHub 返回 `409 Git Repository is empty.`；分支不存在时才返回 `404`。两者语义相同（都是"引用待创建"），**必须一并处理**——只判 404 会让首次推送到刚建好的仓库直接失败，而且失败发生在通道探测**之前**，报错看起来像是仓库配置问题，很容易被误判成权限或网络故障。（2026-09-28 实测，已在 `cmd_push` / `cmd_verify` 中修正。）
 - **`private: false` 即公开**，创建前必须已完成第一节的内容审计。
 - **topics 需单独设置**：`PUT /repos/{owner}/{repo}/topics`，名称只能是小写字母、数字、连字符。
 - **GitHub 会自动识别 LICENSE**（`LICENSE` 文件为 MIT 原文即识别为 MIT）；推完文件后才有该字段，属正常延迟。
